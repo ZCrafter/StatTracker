@@ -6,11 +6,13 @@ import asyncpg
 import os
 import csv
 import io
+import time
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://tracker:your_password@postgres:5432/lifestats")
+# Use the service name from docker-compose as hostname
+DATABASE_URL = "postgresql://tracker:tracker123@postgres:5432/lifestats"
 
 class EventSubmission(BaseModel):
     event_type: str
@@ -22,31 +24,63 @@ class ToothbrushSubmission(BaseModel):
     used_irrigator: bool = False
 
 async def get_db():
-    try:
-        conn = await asyncpg.connect(DATABASE_URL)
-        return conn
-    except Exception as e:
-        print(f"Database connection error: {e}")
-        raise
+    max_retries = 5
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            conn = await asyncpg.connect(DATABASE_URL)
+            print(f"Database connection successful on attempt {attempt + 1}")
+            return conn
+        except Exception as e:
+            print(f"Database connection attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print("All database connection attempts failed")
+                raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 @app.on_event("startup")
-async def startup():
-    # Test database connection on startup
+async def startup_event():
+    print("Testing database connection on startup...")
     try:
         conn = await get_db()
+        # Test the connection by creating tables if they don't exist
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS events (
+                id SERIAL PRIMARY KEY,
+                event_type VARCHAR(10) NOT NULL,
+                location VARCHAR(20) NOT NULL,
+                timestamp TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS toothbrush_events (
+                id SERIAL PRIMARY KEY,
+                timestamp TIMESTAMP DEFAULT NOW(),
+                used_irrigator BOOLEAN DEFAULT FALSE
+            )
+        ''')
         await conn.close()
-        print("Database connection successful")
+        print("Database tables verified/created successfully")
     except Exception as e:
-        print(f"Database connection failed: {e}")
+        print(f"Startup database check failed: {e}")
+
+@app.get("/")
+async def root():
+    return {"status": "backend running"}
 
 @app.post("/api/events")
 async def submit_event(event: EventSubmission):
     try:
-        async with await get_db() as conn:
-            await conn.execute(
-                "INSERT INTO events (event_type, location, timestamp) VALUES ($1, $2, $3)",
-                event.event_type, event.location, event.timestamp or datetime.now()
-            )
+        conn = await get_db()
+        await conn.execute(
+            "INSERT INTO events (event_type, location, timestamp) VALUES ($1, $2, $3)",
+            event.event_type, event.location, event.timestamp or datetime.now()
+        )
+        await conn.close()
+        print(f"Event submitted: {event.event_type} at {event.location}")
         return {"status": "success"}
     except Exception as e:
         print(f"Error submitting event: {e}")
@@ -55,11 +89,13 @@ async def submit_event(event: EventSubmission):
 @app.post("/api/toothbrush")
 async def submit_toothbrush(event: ToothbrushSubmission):
     try:
-        async with await get_db() as conn:
-            await conn.execute(
-                "INSERT INTO toothbrush_events (timestamp, used_irrigator) VALUES ($1, $2)",
-                event.timestamp or datetime.now(), event.used_irrigator
-            )
+        conn = await get_db()
+        await conn.execute(
+            "INSERT INTO toothbrush_events (timestamp, used_irrigator) VALUES ($1, $2)",
+            event.timestamp or datetime.now(), event.used_irrigator
+        )
+        await conn.close()
+        print(f"Toothbrush event submitted: irrigator={event.used_irrigator}")
         return {"status": "success"}
     except Exception as e:
         print(f"Error submitting toothbrush: {e}")
@@ -68,9 +104,11 @@ async def submit_toothbrush(event: ToothbrushSubmission):
 @app.get("/api/data")
 async def get_data():
     try:
-        async with await get_db() as conn:
-            events = await conn.fetch("SELECT * FROM events ORDER BY timestamp DESC")
-            toothbrush = await conn.fetch("SELECT * FROM toothbrush_events ORDER BY timestamp DESC")
+        conn = await get_db()
+        events = await conn.fetch("SELECT * FROM events ORDER BY timestamp DESC")
+        toothbrush = await conn.fetch("SELECT * FROM toothbrush_events ORDER BY timestamp DESC")
+        await conn.close()
+        print(f"Data fetched: {len(events)} events, {len(toothbrush)} toothbrush events")
         return {"events": [dict(record) for record in events], "toothbrush": [dict(record) for record in toothbrush]}
     except Exception as e:
         print(f"Error fetching data: {e}")
