@@ -6,12 +6,13 @@ function App() {
   const [showCum, setShowCum] = useState(false);
   const [events, setEvents] = useState([]);
   const [toothbrushEvents, setToothbrushEvents] = useState([]);
+  const [stats, setStats] = useState({});
   const [lastSubmitted, setLastSubmitted] = useState(null);
   const [submitMessage, setSubmitMessage] = useState('');
   const [formData, setFormData] = useState({ 
     eventType: 'pee', 
     location: 'home',
-    timestamp: new Date().toISOString().slice(0, 16) // Current date/time
+    timestamp: new Date().toISOString().slice(0, 16)
   });
   const [toothbrushData, setToothbrushData] = useState({
     timestamp: new Date().toISOString().slice(0, 16),
@@ -20,6 +21,7 @@ function App() {
 
   useEffect(() => {
     fetchData();
+    fetchStats();
   }, []);
 
   const fetchData = async () => {
@@ -30,6 +32,16 @@ function App() {
       setToothbrushEvents(data.toothbrush);
     } catch (error) {
       console.error('Failed to fetch data:', error);
+    }
+  };
+
+  const fetchStats = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/stats');
+      const data = await response.json();
+      setStats(data);
+    } catch (error) {
+      console.error('Failed to fetch stats:', error);
     }
   };
 
@@ -50,18 +62,20 @@ function App() {
           type: formData.eventType,
           time: new Date().toLocaleTimeString()
         });
-        // Reset form but keep current selections
         setFormData({
           ...formData,
           timestamp: new Date().toISOString().slice(0, 16)
         });
         fetchData();
+        fetchStats();
         
-        // Clear message after 3 seconds
         setTimeout(() => setSubmitMessage(''), 3000);
+      } else {
+        const errorData = await response.json();
+        setSubmitMessage(`Failed to submit: ${errorData.detail}`);
       }
     } catch (error) {
-      setSubmitMessage('Failed to submit event');
+      setSubmitMessage('Failed to submit event: ' + error.message);
       console.error('Failed to submit event:', error);
     }
   };
@@ -84,6 +98,7 @@ function App() {
           usedIrrigator: false
         });
         fetchData();
+        fetchStats();
         
         setTimeout(() => setSubmitMessage(''), 3000);
       }
@@ -97,13 +112,26 @@ function App() {
     try {
       await fetch(`http://localhost:5000/api/events/${id}`, { method: 'DELETE' });
       fetchData();
+      fetchStats();
     } catch (error) {
       console.error('Failed to delete event:', error);
     }
   };
 
+  const getBackgroundColor = () => {
+    if (activeScreen === 'events') {
+      switch (formData.eventType) {
+        case 'pee': return 'var(--bg-pee)';
+        case 'poo': return 'var(--bg-poo)';
+        case 'cum': return 'var(--bg-cum)';
+        default: return 'var(--bg-default)';
+      }
+    }
+    return 'var(--bg-default)';
+  };
+
   return (
-    <div className="app">
+    <div className="app" style={{ backgroundColor: getBackgroundColor() }}>
       <nav className="nav">
         <button onClick={() => setActiveScreen('events')} className={activeScreen === 'events' ? 'active' : ''}>
           Events
@@ -132,6 +160,7 @@ function App() {
           submitEvent={submitEvent} 
           showCum={showCum}
           setShowCum={setShowCum}
+          setActiveScreen={setActiveScreen}
           lastSubmitted={lastSubmitted}
         />
       )}
@@ -148,7 +177,8 @@ function App() {
           events={events} 
           toothbrushEvents={toothbrushEvents} 
           showCum={showCum} 
-          setShowCum={setShowCum} 
+          setShowCum={setShowCum}
+          stats={stats}
         />
       )}
       {activeScreen === 'admin' && (
@@ -161,7 +191,15 @@ function App() {
   );
 }
 
-function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum, lastSubmitted }) {
+function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum, setActiveScreen, lastSubmitted }) {
+  const handleCumClick = () => {
+    const newShowCum = !showCum;
+    setShowCum(newShowCum);
+    if (newShowCum) {
+      setFormData({...formData, eventType: 'cum'});
+    }
+  };
+
   return (
     <div className="screen">
       <div className="event-buttons">
@@ -179,13 +217,7 @@ function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum, 
         </button>
         <button 
           className={`event-btn cum-toggle-btn ${showCum ? 'visible' : ''} ${formData.eventType === 'cum' ? 'active cum' : ''}`}
-          onClick={() => {
-            const newShowCum = !showCum;
-            setShowCum(newShowCum);
-            if (newShowCum) {
-              setFormData({...formData, eventType: 'cum'});
-            }
-          }}
+          onClick={handleCumClick}
         >
           🌶️ Cum
         </button>
@@ -258,12 +290,10 @@ function ToothbrushScreen({ toothbrushData, setToothbrushData, submitToothbrush 
   );
 }
 
-function StatsScreen({ events, toothbrushEvents, showCum, setShowCum }) {
-  // Calculate stats
+function StatsScreen({ events, toothbrushEvents, showCum, setShowCum, stats }) {
   const today = new Date().toDateString();
   const todayEvents = events.filter(e => new Date(e.timestamp).toDateString() === today);
   
-  // Weekly stats (last 7 days)
   const oneWeekAgo = new Date();
   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
   const weeklyEvents = events.filter(e => new Date(e.timestamp) >= oneWeekAgo);
@@ -282,38 +312,50 @@ function StatsScreen({ events, toothbrushEvents, showCum, setShowCum }) {
     toothbrush: (weeklyStats.toothbrush / 7).toFixed(1)
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Submit an event to start tracking!';
+    const date = new Date(dateString);
+    return `Tracking since: ${date.toLocaleDateString()}`;
+  };
+
   return (
     <div className="screen">
-      <button 
-        className={`cum-toggle-stats ${showCum ? 'visible' : ''}`}
-        onClick={() => setShowCum(!showCum)}
-        title={showCum ? 'Hide Cum Stats' : 'Show Cum Stats'}
-      >
-        {showCum ? '🌶️' : '🌶️'}
-      </button>
+      <div className="stats-header">
+        <h3>Today's Stats</h3>
+        <button 
+          className={`cum-toggle-stats ${showCum ? 'visible' : ''}`}
+          onClick={() => setShowCum(!showCum)}
+          title={showCum ? 'Hide Cum Stats' : 'Show Cum Stats'}
+        >
+          {showCum ? '🌶️' : '🌶️'}
+        </button>
+      </div>
+      
+      <div className="tracking-since">
+        {formatDate(stats.first_event_date)}
+      </div>
       
       <div className="stats">
-        <h3>Today's Stats</h3>
         <div className="stat-grid">
           <div className="stat-card">
             <span className="stat-number">{todayEvents.filter(e => e.event_type === 'pee').length}</span>
-            <span className="stat-label">Pee</span>
+            <span className="stat-label">Pee Today</span>
           </div>
           <div className="stat-card">
             <span className="stat-number">{todayEvents.filter(e => e.event_type === 'poo').length}</span>
-            <span className="stat-label">Poo</span>
+            <span className="stat-label">Poo Today</span>
           </div>
           {showCum && (
             <div className="stat-card">
               <span className="stat-number">{todayEvents.filter(e => e.event_type === 'cum').length}</span>
-              <span className="stat-label">Cum</span>
+              <span className="stat-label">Cum Today</span>
             </div>
           )}
           <div className="stat-card">
             <span className="stat-number">
               {toothbrushEvents.filter(e => new Date(e.timestamp).toDateString() === today).length}
             </span>
-            <span className="stat-label">Brushing</span>
+            <span className="stat-label">Brushing Today</span>
           </div>
         </div>
 
@@ -340,6 +382,32 @@ function StatsScreen({ events, toothbrushEvents, showCum, setShowCum }) {
             <span className="stat-number">{weeklyStats.toothbrush}</span>
             <span className="stat-label">Brushing Total</span>
             <span className="stat-average">Avg: {dailyAverages.toothbrush}/day</span>
+          </div>
+        </div>
+
+        <h3>All Time Averages</h3>
+        <div className="stat-grid">
+          <div className="stat-card">
+            <span className="stat-number">{stats.all_time_averages?.pee || 0}</span>
+            <span className="stat-label">Pee/Day</span>
+            <span className="stat-average">{stats.total_days || 1} days tracked</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-number">{stats.all_time_averages?.poo || 0}</span>
+            <span className="stat-label">Poo/Day</span>
+            <span className="stat-average">{stats.total_days || 1} days tracked</span>
+          </div>
+          {showCum && (
+            <div className="stat-card">
+              <span className="stat-number">{stats.all_time_averages?.cum || 0}</span>
+              <span className="stat-label">Cum/Day</span>
+              <span className="stat-average">{stats.total_days || 1} days tracked</span>
+            </div>
+          )}
+          <div className="stat-card">
+            <span className="stat-number">{stats.all_time_averages?.toothbrush || 0}</span>
+            <span className="stat-label">Brushing/Day</span>
+            <span className="stat-average">{stats.total_days || 1} days tracked</span>
           </div>
         </div>
       </div>
