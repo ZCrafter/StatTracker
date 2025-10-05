@@ -1,0 +1,73 @@
+/* frontend/src/App.css */
+.app {
+  max-width: 400px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.nav {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.nav button {
+  flex: 1;
+  padding: 12px;
+  border: none;
+  background: #f0f0f0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.nav button.active {
+  background: #007AFF;
+  color: white;
+}
+
+.event-buttons {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.event-btn {
+  flex: 1;
+  padding: 15px;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.event-btn.active.pee { border-color: #007AFF; background: #007AFF20; }
+.event-btn.active.poo { border-color: #8B4513; background: #8B451320; }
+.event-btn.active.cum { border-color: #FF3B30; background: #FF3B3020; }
+
+.cum-btn {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cum-btn.visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.submit-btn {
+  width: 100%;
+  padding: 16px;
+  background: #007AFF;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  cursor: pointer;
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 360px;
+}
