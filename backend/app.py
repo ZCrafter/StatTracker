@@ -9,13 +9,14 @@ import asyncio
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Database configuration
+# Get database configuration from environment variables
 DB_CONFIG = {
-    "host": "stattracker-postgres",
-    "port": 5432,
-    "user": "tracker",
-    "password": "tracker123",
-    "database": "lifestats"
+    "host": os.getenv("DATABASE_HOST", "stattracker-postgres"),
+    "port": int(os.getenv("DATABASE_PORT", "5432")),
+    "user": os.getenv("DATABASE_USER", "tracker"),
+    "password": os.getenv("DATABASE_PASSWORD", "tracker123"),
+    "database": os.getenv("DATABASE_NAME", "lifestats"),
+    "timeout": 30
 }
 
 class EventSubmission(BaseModel):
@@ -28,31 +29,54 @@ class ToothbrushSubmission(BaseModel):
     used_irrigator: bool = False
 
 async def get_db_connection():
-    """Get database connection with retry logic"""
+    """Get database connection with comprehensive error handling"""
     max_retries = 10
+    last_error = None
+    
     for attempt in range(max_retries):
         try:
-            print(f"Attempting database connection (attempt {attempt + 1})...")
+            print(f"🔧 Database connection attempt {attempt + 1}/{max_retries}")
+            print(f"   Connecting to: {DB_CONFIG['host']}:{DB_CONFIG['port']}")
+            print(f"   Database: {DB_CONFIG['database']}, User: {DB_CONFIG['user']}")
+            
             conn = await asyncpg.connect(**DB_CONFIG)
-            print("✅ Database connection successful!")
+            
+            # Test the connection
+            version = await conn.fetchval("SELECT version()")
+            print(f"✅ Database connection successful!")
+            print(f"   PostgreSQL version: {version.split(',')[0]}")
+            
             return conn
+            
         except Exception as e:
-            print(f"❌ Database connection failed (attempt {attempt + 1}): {e}")
+            last_error = e
+            print(f"❌ Connection failed (attempt {attempt + 1}): {str(e)}")
+            
             if attempt < max_retries - 1:
-                wait_time = 2 ** attempt  # Exponential backoff
-                print(f"Waiting {wait_time} seconds before retry...")
+                wait_time = 2
+                print(f"   Waiting {wait_time} seconds before retry...")
                 await asyncio.sleep(wait_time)
             else:
-                raise Exception(f"Failed to connect to database after {max_retries} attempts: {e}")
+                print(f"💥 All connection attempts failed")
+                raise Exception(f"Failed to connect to database after {max_retries} attempts. Last error: {str(last_error)}")
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup"""
-    print("🚀 Starting backend application...")
+    print("🚀 Starting StatTracker Backend...")
+    print("📊 Database Configuration:")
+    for key, value in DB_CONFIG.items():
+        if key != 'password':
+            print(f"   {key}: {value}")
+        else:
+            print(f"   {key}: {'*' * len(value)}")
+    
     try:
         conn = await get_db_connection()
         
         # Create tables if they don't exist
+        print("🗃️ Creating/verifying database tables...")
+        
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id SERIAL PRIMARY KEY,
@@ -61,6 +85,7 @@ async def startup_event():
                 timestamp TIMESTAMP DEFAULT NOW()
             )
         ''')
+        print("   ✅ Events table ready")
         
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS toothbrush_events (
@@ -69,27 +94,53 @@ async def startup_event():
                 used_irrigator BOOLEAN DEFAULT FALSE
             )
         ''')
+        print("   ✅ Toothbrush events table ready")
         
         await conn.close()
-        print("✅ Database tables verified/created successfully")
+        print("🎉 Database initialization complete!")
         
     except Exception as e:
-        print(f"❌ Startup failed: {e}")
+        print(f"💥 Startup failed: {e}")
+        # Don't raise here, let the app start anyway
 
 @app.get("/")
 async def root():
-    return {"status": "backend running", "message": "Database connection test needed"}
+    return {
+        "status": "backend running", 
+        "service": "StatTracker Backend",
+        "endpoints": {
+            "test_db": "/test-db",
+            "submit_event": "POST /api/events",
+            "get_data": "GET /api/data"
+        }
+    }
 
 @app.get("/test-db")
 async def test_db():
     """Test database connection endpoint"""
     try:
         conn = await get_db_connection()
+        
+        # Get some stats
+        event_count = await conn.fetchval("SELECT COUNT(*) FROM events")
+        toothbrush_count = await conn.fetchval("SELECT COUNT(*) FROM toothbrush_events")
         version = await conn.fetchval("SELECT version()")
+        
         await conn.close()
-        return {"status": "success", "postgres_version": version}
+        
+        return {
+            "status": "success", 
+            "postgres_version": version.split(',')[0],
+            "event_count": event_count,
+            "toothbrush_count": toothbrush_count,
+            "database_connection": "healthy"
+        }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {
+            "status": "error", 
+            "message": str(e),
+            "database_connection": "unhealthy"
+        }
 
 @app.post("/api/events")
 async def submit_event(event: EventSubmission):
@@ -134,148 +185,12 @@ async def get_data():
         print(f"❌ Error fetching data: {e}")
         return {"events": [], "toothbrush": []}
 
-@app.get("/api/stats")
-async def get_stats():
+@app.delete("/api/events/{event_id}")
+async def delete_event(event_id: int):
     try:
-        async with await get_db() as conn:
-            # Get earliest event date
-            first_event = await conn.fetchval("SELECT MIN(timestamp) FROM events")
-            first_toothbrush = await conn.fetchval("SELECT MIN(timestamp) FROM toothbrush_events")
-            
-            # Get all-time averages
-            total_events = await conn.fetchval("SELECT COUNT(*) FROM events")
-            total_toothbrush = await conn.fetchval("SELECT COUNT(*) FROM toothbrush_events")
-            
-            # Calculate days since first event
-            if first_event:
-                days_since_first = (datetime.now() - first_event).days or 1
-            else:
-                days_since_first = 1
-                
-            # Event counts by type
-            event_counts = await conn.fetch("SELECT event_type, COUNT(*) FROM events GROUP BY event_type")
-            event_counts_dict = {row['event_type']: row['count'] for row in event_counts}
-            
-            stats = {
-                "first_event_date": first_event.isoformat() if first_event else None,
-                "first_toothbrush_date": first_toothbrush.isoformat() if first_toothbrush else None,
-                "all_time_averages": {
-                    "pee": round(event_counts_dict.get('pee', 0) / days_since_first, 1),
-                    "poo": round(event_counts_dict.get('poo', 0) / days_since_first, 1),
-                    "cum": round(event_counts_dict.get('cum', 0) / days_since_first, 1),
-                    "toothbrush": round(total_toothbrush / days_since_first, 1)
-                },
-                "total_days": days_since_first
-            }
-            
-        return stats
+        conn = await get_db_connection()
+        result = await conn.execute("DELETE FROM events WHERE id = $1", event_id)
+        await conn.close()
+        return {"status": "success", "message": f"Event {event_id} deleted"}
     except Exception as e:
-        print(f"Error fetching stats: {e}")
-        return {
-            "first_event_date": None,
-            "first_toothbrush_date": None,
-            "all_time_averages": {"pee": 0, "poo": 0, "cum": 0, "toothbrush": 0},
-            "total_days": 1
-        }
-
-@app.delete("/api/events/{id}")
-async def delete_event(id: int):
-    async with await get_db() as conn:
-        await conn.execute("DELETE FROM events WHERE id = $1", id)
-    return {"status": "deleted"}
-
-@app.post("/api/import/events")
-async def import_events_csv(file: UploadFile = File(...)):
-    contents = await file.read()
-    csv_file = io.StringIO(contents.decode('utf-8'))
-    csv_reader = csv.DictReader(csv_file)
-    
-    rows_processed = 0
-    async with await get_db() as conn:
-        for row in csv_reader:
-            timestamp_str = row.get('Timestamp') or row.get('Time') or row.get('Date')
-            if timestamp_str:
-                try:
-                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                except:
-                    try:
-                        timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
-                    except:
-                        timestamp = datetime.now()
-            else:
-                timestamp = datetime.now()
-                
-            event_type = map_event_type(row.get('Event Type') or row.get('Event') or '')
-            location = map_location(row.get('Location') or 'home')
-            
-            await conn.execute(
-                "INSERT INTO events (event_type, location, timestamp) VALUES ($1, $2, $3)",
-                event_type, location, timestamp
-            )
-            rows_processed += 1
-    
-    return {"status": "imported", "rows_processed": rows_processed}
-
-@app.post("/api/import/toothbrush")
-async def import_toothbrush_csv(file: UploadFile = File(...)):
-    contents = await file.read()
-    csv_file = io.StringIO(contents.decode('utf-8'))
-    csv_reader = csv.DictReader(csv_file)
-    
-    rows_processed = 0
-    async with await get_db() as conn:
-        for row in csv_reader:
-            timestamp_str = row.get('Timestamp') or row.get('Time') or row.get('Date')
-            if timestamp_str:
-                try:
-                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
-                except:
-                    try:
-                        timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
-                    except:
-                        timestamp = datetime.now()
-            else:
-                timestamp = datetime.now()
-            
-            used_irrigator = row.get('Used Irrigator', '').lower() in ['true', 'yes', '1']
-            
-            await conn.execute(
-                "INSERT INTO toothbrush_events (timestamp, used_irrigator) VALUES ($1, $2)",
-                timestamp, used_irrigator
-            )
-            rows_processed += 1
-    
-    return {"status": "imported", "rows_processed": rows_processed}
-
-# Helper functions for mapping
-def map_event_type(google_forms_value: str) -> str:
-    """Map Google Forms responses to your event types"""
-    if not google_forms_value:
-        return 'pee'
-        
-    value = google_forms_value.lower().strip()
-    if 'pee' in value or 'urinate' in value:
-        return 'pee'
-    elif 'poo' in value or 'defecate' in value or 'bowel' in value:
-        return 'poo'
-    elif 'cum' in value or 'ejaculate' in value:
-        return 'cum'
-    else:
-        return 'pee'
-
-def map_location(google_forms_value: str) -> str:
-    """Map Google Forms locations to your location options"""
-    if not google_forms_value:
-        return 'home'
-        
-    value = google_forms_value.lower().strip()
-    if 'home' in value:
-        return 'home'
-    elif 'work' in value:
-        return 'work'
-    else:
-        return 'other'
-
-@app.get("/")
-async def root():
-    return {"status": "backend running"}
+        raise HTTPException(status_code=500, detail=str(e))
