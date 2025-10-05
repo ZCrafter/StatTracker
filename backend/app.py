@@ -1,18 +1,22 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
 import asyncpg
 import os
-import csv
-import io
-import time
+import asyncio
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Use the service name from docker-compose as hostname
-DATABASE_URL = "postgresql://tracker:tracker123@postgres:5432/lifestats"
+# Database configuration
+DB_CONFIG = {
+    "host": "stattracker-postgres",
+    "port": 5432,
+    "user": "tracker",
+    "password": "tracker123",
+    "database": "lifestats"
+}
 
 class EventSubmission(BaseModel):
     event_type: str
@@ -23,30 +27,32 @@ class ToothbrushSubmission(BaseModel):
     timestamp: datetime = None
     used_irrigator: bool = False
 
-async def get_db():
-    max_retries = 5
-    retry_delay = 2
-    
+async def get_db_connection():
+    """Get database connection with retry logic"""
+    max_retries = 10
     for attempt in range(max_retries):
         try:
-            conn = await asyncpg.connect(DATABASE_URL)
-            print(f"Database connection successful on attempt {attempt + 1}")
+            print(f"Attempting database connection (attempt {attempt + 1})...")
+            conn = await asyncpg.connect(**DB_CONFIG)
+            print("✅ Database connection successful!")
             return conn
         except Exception as e:
-            print(f"Database connection attempt {attempt + 1} failed: {e}")
+            print(f"❌ Database connection failed (attempt {attempt + 1}): {e}")
             if attempt < max_retries - 1:
-                print(f"Retrying in {retry_delay} seconds...")
-                time.sleep(retry_delay)
+                wait_time = 2 ** attempt  # Exponential backoff
+                print(f"Waiting {wait_time} seconds before retry...")
+                await asyncio.sleep(wait_time)
             else:
-                print("All database connection attempts failed")
-                raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
+                raise Exception(f"Failed to connect to database after {max_retries} attempts: {e}")
 
 @app.on_event("startup")
 async def startup_event():
-    print("Testing database connection on startup...")
+    """Initialize database on startup"""
+    print("🚀 Starting backend application...")
     try:
-        conn = await get_db()
-        # Test the connection by creating tables if they don't exist
+        conn = await get_db_connection()
+        
+        # Create tables if they don't exist
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id SERIAL PRIMARY KEY,
@@ -55,6 +61,7 @@ async def startup_event():
                 timestamp TIMESTAMP DEFAULT NOW()
             )
         ''')
+        
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS toothbrush_events (
                 id SERIAL PRIMARY KEY,
@@ -62,56 +69,69 @@ async def startup_event():
                 used_irrigator BOOLEAN DEFAULT FALSE
             )
         ''')
+        
         await conn.close()
-        print("Database tables verified/created successfully")
+        print("✅ Database tables verified/created successfully")
+        
     except Exception as e:
-        print(f"Startup database check failed: {e}")
+        print(f"❌ Startup failed: {e}")
 
 @app.get("/")
 async def root():
-    return {"status": "backend running"}
+    return {"status": "backend running", "message": "Database connection test needed"}
+
+@app.get("/test-db")
+async def test_db():
+    """Test database connection endpoint"""
+    try:
+        conn = await get_db_connection()
+        version = await conn.fetchval("SELECT version()")
+        await conn.close()
+        return {"status": "success", "postgres_version": version}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.post("/api/events")
 async def submit_event(event: EventSubmission):
     try:
-        conn = await get_db()
+        conn = await get_db_connection()
         await conn.execute(
             "INSERT INTO events (event_type, location, timestamp) VALUES ($1, $2, $3)",
             event.event_type, event.location, event.timestamp or datetime.now()
         )
         await conn.close()
-        print(f"Event submitted: {event.event_type} at {event.location}")
+        print(f"✅ Event submitted: {event.event_type} at {event.location}")
         return {"status": "success"}
     except Exception as e:
-        print(f"Error submitting event: {e}")
+        print(f"❌ Error submitting event: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/toothbrush")
 async def submit_toothbrush(event: ToothbrushSubmission):
     try:
-        conn = await get_db()
+        conn = await get_db_connection()
         await conn.execute(
             "INSERT INTO toothbrush_events (timestamp, used_irrigator) VALUES ($1, $2)",
             event.timestamp or datetime.now(), event.used_irrigator
         )
         await conn.close()
-        print(f"Toothbrush event submitted: irrigator={event.used_irrigator}")
+        print(f"✅ Toothbrush event submitted: irrigator={event.used_irrigator}")
         return {"status": "success"}
     except Exception as e:
-        print(f"Error submitting toothbrush: {e}")
+        print(f"❌ Error submitting toothbrush: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/data")
 async def get_data():
     try:
-        conn = await get_db()
+        conn = await get_db_connection()
         events = await conn.fetch("SELECT * FROM events ORDER BY timestamp DESC")
         toothbrush = await conn.fetch("SELECT * FROM toothbrush_events ORDER BY timestamp DESC")
         await conn.close()
-        print(f"Data fetched: {len(events)} events, {len(toothbrush)} toothbrush events")
+        print(f"📊 Data fetched: {len(events)} events, {len(toothbrush)} toothbrush events")
         return {"events": [dict(record) for record in events], "toothbrush": [dict(record) for record in toothbrush]}
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        print(f"❌ Error fetching data: {e}")
         return {"events": [], "toothbrush": []}
 
 @app.get("/api/stats")
