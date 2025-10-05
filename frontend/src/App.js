@@ -185,4 +185,72 @@ function AdminScreen({ events, deleteEvent }) {
   );
 }
 
+function ImportScreen() {
+  const [importStatus, setImportStatus] = useState('');
+
+  const handleFileUpload = async (event, importType) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(`http://localhost:5000/api/import/${importType}`, {
+        method: 'POST',
+        body: formData,
+      });
+      
+      const result = await response.json();
+      setImportStatus(`Successfully imported ${result.rows_processed} rows`);
+      
+      // Clear file input
+      event.target.value = '';
+    } catch (error) {
+      setImportStatus('Import failed: ' + error.message);
+    }
+  };
+
+  return (
+    <div className="screen">
+      <h3>Import Google Forms Data</h3>
+      
+      <div className="import-section">
+        <h4>Import Events</h4>
+        <p>Upload CSV from Google Forms (Events)</p>
+        <input 
+          type="file" 
+          accept=".csv"
+          onChange={(e) => handleFileUpload(e, 'events')}
+          className="file-input"
+        />
+      </div>
+
+      <div className="import-section">
+        <h4>Import Toothbrush Data</h4>
+        <p>Upload CSV from Google Forms (Toothbrush)</p>
+        <input 
+          type="file" 
+          accept=".csv"
+          onChange={(e) => handleFileUpload(e, 'toothbrush')}
+          className="file-input"
+        />
+      </div>
+
+      {importStatus && (
+        <div className="import-status">
+          {importStatus}
+        </div>
+      )}
+
+      <div className="import-help">
+        <h5>CSV Format Expected:</h5>
+        <p><strong>Events:</strong> Timestamp, Event Type, Location, Who</p>
+        <p><strong>Toothbrush:</strong> Timestamp</p>
+        <p>First row should be headers. Timestamp format: 2023-12-01 14:30:00</p>
+      </div>
+    </div>
+  );
+}
+
 export default App;
