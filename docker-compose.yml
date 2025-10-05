@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:15
+    container_name: stattracker-postgres
     environment:
       POSTGRES_DB: lifestats
       POSTGRES_USER: tracker
@@ -9,36 +10,32 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tracker -d lifestats"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
     networks:
       - stattracker-network
 
   backend:
     build: ./backend
+    container_name: stattracker-backend
     ports:
       - "5000:5000"
     environment:
-      DATABASE_URL: postgresql://tracker:tracker123@postgres:5432/lifestats
+      DATABASE_URL: postgresql://tracker:@Database0101@stattracker-postgres:5432/lifestats
     depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+      - postgres
     networks:
       - stattracker-network
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
+    container_name: stattracker-frontend
     ports:
       - "3000:3000"
     depends_on:
       - backend
-    restart: unless-stopped
     networks:
       - stattracker-network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
