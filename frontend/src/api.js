@@ -1,5 +1,5 @@
 // frontend/src/api.js
-const API_BASE = window.location.hostname === 'localhost' 
+const API_BASE = ''
   ? 'http://localhost:5000' 
   : '/api'; // Use relative path when served from same domain
 
