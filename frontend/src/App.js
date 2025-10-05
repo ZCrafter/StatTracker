@@ -1,4 +1,3 @@
-// frontend/src/App.js
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
@@ -6,7 +5,19 @@ function App() {
   const [activeScreen, setActiveScreen] = useState('events');
   const [showCum, setShowCum] = useState(false);
   const [events, setEvents] = useState([]);
+  const [toothbrushEvents, setToothbrushEvents] = useState([]);
   const [formData, setFormData] = useState({ eventType: 'pee', location: 'home', who: '' });
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    const response = await fetch('http://localhost:5000/api/data');
+    const data = await response.json();
+    setEvents(data.events);
+    setToothbrushEvents(data.toothbrush);
+  };
 
   const submitEvent = async () => {
     await fetch('http://localhost:5000/api/events', {
@@ -15,6 +26,21 @@ function App() {
       body: JSON.stringify({ ...formData, timestamp: new Date() })
     });
     setFormData({ ...formData, who: '' });
+    fetchData();
+  };
+
+  const submitToothbrush = async () => {
+    await fetch('http://localhost:5000/api/toothbrush', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ timestamp: new Date() })
+    });
+    fetchData();
+  };
+
+  const deleteEvent = async (id) => {
+    await fetch(`http://localhost:5000/api/events/${id}`, { method: 'DELETE' });
+    fetchData();
   };
 
   return (
@@ -29,14 +55,18 @@ function App() {
         <button onClick={() => setActiveScreen('stats')} className={activeScreen === 'stats' ? 'active' : ''}>
           Stats
         </button>
+        <button onClick={() => setActiveScreen('admin')} className={activeScreen === 'admin' ? 'active' : ''}>
+          Admin
+        </button>
       </nav>
 
       {activeScreen === 'events' && (
         <EventScreen formData={formData} setFormData={setFormData} submitEvent={submitEvent} showCum={showCum} setShowCum={setShowCum} />
       )}
       
-      {activeScreen === 'toothbrush' && <ToothbrushScreen />}
-      {activeScreen === 'stats' && <StatsScreen showCum={showCum} setShowCum={setShowCum} />}
+      {activeScreen === 'toothbrush' && <ToothbrushScreen submitToothbrush={submitToothbrush} />}
+      {activeScreen === 'stats' && <StatsScreen events={events} toothbrushEvents={toothbrushEvents} showCum={showCum} setShowCum={setShowCum} />}
+      {activeScreen === 'admin' && <AdminScreen events={events} deleteEvent={deleteEvent} />}
     </div>
   );
 }
@@ -70,7 +100,7 @@ function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum }
 
       <div className="location-radios">
         {['home', 'work', 'other'].map(loc => (
-          <label key={loc}>
+          <label key={loc} className="radio-label">
             <input type="radio" name="location" value={loc} checked={formData.location === loc} 
                    onChange={(e) => setFormData({...formData, location: e.target.value})} />
             {loc.charAt(0).toUpperCase() + loc.slice(1)}
@@ -78,10 +108,81 @@ function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum }
         ))}
       </div>
 
-      <input type="text" placeholder="Who" value={formData.who} 
+      <input type="text" placeholder="Who" value={formData.who} className="who-input"
              onChange={(e) => setFormData({...formData, who: e.target.value})} />
 
-      <button className="submit-btn" onClick={submitEvent}>Submit</button>
+      <button className="submit-btn" onClick={submitEvent}>Submit Event</button>
     </div>
   );
 }
+
+function ToothbrushScreen({ submitToothbrush }) {
+  return (
+    <div className="screen">
+      <button className="submit-btn toothbrush-btn" onClick={submitToothbrush}>
+        🪥 Brush Teeth
+      </button>
+    </div>
+  );
+}
+
+function StatsScreen({ events, toothbrushEvents, showCum, setShowCum }) {
+  const today = new Date().toDateString();
+  const todayEvents = events.filter(e => new Date(e.timestamp).toDateString() === today);
+  
+  return (
+    <div className="screen">
+      <button 
+        className={`cum-toggle ${showCum ? 'visible' : ''}`}
+        onClick={() => setShowCum(!showCum)}
+      >
+        {showCum ? '🌶️' : '❓'}
+      </button>
+      
+      <div className="stats">
+        <h3>Today's Stats</h3>
+        <div className="stat-grid">
+          <div className="stat-card">
+            <span className="stat-number">{todayEvents.filter(e => e.event_type === 'pee').length}</span>
+            <span className="stat-label">Pee</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-number">{todayEvents.filter(e => e.event_type === 'poo').length}</span>
+            <span className="stat-label">Poo</span>
+          </div>
+          {showCum && (
+            <div className="stat-card">
+              <span className="stat-number">{todayEvents.filter(e => e.event_type === 'cum').length}</span>
+              <span className="stat-label">Cum</span>
+            </div>
+          )}
+          <div className="stat-card">
+            <span className="stat-number">{toothbrushEvents.filter(e => new Date(e.timestamp).toDateString() === today).length}</span>
+            <span className="stat-label">Brushing</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AdminScreen({ events, deleteEvent }) {
+  return (
+    <div className="screen admin-screen">
+      <h3>Event History</h3>
+      <div className="event-list">
+        {events.map(event => (
+          <div key={event.id} className="event-item">
+            <span className="event-type">{event.event_type}</span>
+            <span className="event-location">{event.location}</span>
+            <span className="event-who">{event.who || '-'}</span>
+            <span className="event-time">{new Date(event.timestamp).toLocaleString()}</span>
+            <button className="delete-btn" onClick={() => deleteEvent(event.id)}>Delete</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default App;
