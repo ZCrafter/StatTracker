@@ -13,34 +13,50 @@ function App() {
   }, []);
 
   const fetchData = async () => {
-    const response = await fetch('http://localhost:5000/api/data');
-    const data = await response.json();
-    setEvents(data.events);
-    setToothbrushEvents(data.toothbrush);
+    try {
+      const response = await fetch('http://localhost:5000/api/data');
+      const data = await response.json();
+      setEvents(data.events);
+      setToothbrushEvents(data.toothbrush);
+    } catch (error) {
+      console.error('Failed to fetch data:', error);
+    }
   };
 
   const submitEvent = async () => {
-    await fetch('http://localhost:5000/api/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...formData, timestamp: new Date() })
-    });
-    setFormData({ ...formData, who: '' });
-    fetchData();
+    try {
+      await fetch('http://localhost:5000/api/events', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, timestamp: new Date() })
+      });
+      setFormData({ ...formData, who: '' });
+      fetchData();
+    } catch (error) {
+      console.error('Failed to submit event:', error);
+    }
   };
 
   const submitToothbrush = async () => {
-    await fetch('http://localhost:5000/api/toothbrush', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timestamp: new Date() })
-    });
-    fetchData();
+    try {
+      await fetch('http://localhost:5000/api/toothbrush', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timestamp: new Date() })
+      });
+      fetchData();
+    } catch (error) {
+      console.error('Failed to submit toothbrush:', error);
+    }
   };
 
   const deleteEvent = async (id) => {
-    await fetch(`http://localhost:5000/api/events/${id}`, { method: 'DELETE' });
-    fetchData();
+    try {
+      await fetch(`http://localhost:5000/api/events/${id}`, { method: 'DELETE' });
+      fetchData();
+    } catch (error) {
+      console.error('Failed to delete event:', error);
+    }
   };
 
   return (
