@@ -18,6 +18,9 @@ function App() {
     timestamp: new Date().toISOString().slice(0, 16),
     usedIrrigator: false
   });
+  const API_BASE = process.env.NODE_ENV === 'development' 
+  ? 'http://localhost:5000' 
+  : 'http://backend:5000';
 
   useEffect(() => {
     fetchData();
@@ -26,7 +29,7 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/data');
+      const response = await fetch('${API_BASE}/api/events');
       const data = await response.json();
       setEvents(data.events);
       setToothbrushEvents(data.toothbrush);
@@ -37,7 +40,7 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/stats');
+      const response = await fetch('${API_BASE}/api/events');
       const data = await response.json();
       setStats(data);
     } catch (error) {
@@ -47,7 +50,7 @@ function App() {
 
   const submitEvent = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/events', {
+      const response = await fetch('${API_BASE}/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -82,7 +85,7 @@ function App() {
 
   const submitToothbrush = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/toothbrush', {
+      const response = await fetch('${API_BASE}/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
