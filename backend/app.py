@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
@@ -6,7 +6,6 @@ import asyncpg
 import os
 import csv
 import io
-from datetime import datetime
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -56,31 +55,37 @@ async def delete_event(id: int):
         await conn.execute("DELETE FROM events WHERE id = $1", id)
     return {"status": "deleted"}
 
-@app.get("/")
-async def root():
-    return {"status": "backend running"}
-
 @app.post("/api/import/events")
 async def import_events_csv(file: UploadFile = File(...)):
     contents = await file.read()
     csv_file = io.StringIO(contents.decode('utf-8'))
     csv_reader = csv.DictReader(csv_file)
     
+    rows_processed = 0
     async with await get_db() as conn:
         for row in csv_reader:
             # Map Google Forms columns to your database
             # Adjust these mappings based on your actual CSV headers
-            timestamp = datetime.fromisoformat(row['Timestamp'].replace('Z', '+00:00'))
-            event_type = map_event_type(row['Event Type'])  # Custom mapping function
-            location = map_location(row['Location'])  # Custom mapping function
-            who = row.get('Who', '').strip()
+            timestamp_str = row.get('Timestamp') or row.get('Time') or row.get('Date')
+            if timestamp_str:
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except:
+                    timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+            else:
+                timestamp = datetime.now()
+                
+            event_type = map_event_type(row.get('Event Type') or row.get('Event') or '')
+            location = map_location(row.get('Location') or 'home')
+            who = row.get('Who') or row.get('Person') or ''
             
             await conn.execute(
                 "INSERT INTO events (event_type, location, who, timestamp) VALUES ($1, $2, $3, $4)",
                 event_type, location, who, timestamp
             )
+            rows_processed += 1
     
-    return {"status": "imported", "rows_processed": csv_reader.line_num - 1}
+    return {"status": "imported", "rows_processed": rows_processed}
 
 @app.post("/api/import/toothbrush")
 async def import_toothbrush_csv(file: UploadFile = File(...)):
@@ -88,20 +93,32 @@ async def import_toothbrush_csv(file: UploadFile = File(...)):
     csv_file = io.StringIO(contents.decode('utf-8'))
     csv_reader = csv.DictReader(csv_file)
     
+    rows_processed = 0
     async with await get_db() as conn:
         for row in csv_reader:
-            timestamp = datetime.fromisoformat(row['Timestamp'].replace('Z', '+00:00'))
+            timestamp_str = row.get('Timestamp') or row.get('Time') or row.get('Date')
+            if timestamp_str:
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                except:
+                    timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+            else:
+                timestamp = datetime.now()
             
             await conn.execute(
                 "INSERT INTO toothbrush_events (timestamp) VALUES ($1)",
                 timestamp
             )
+            rows_processed += 1
     
-    return {"status": "imported", "rows_processed": csv_reader.line_num - 1}
+    return {"status": "imported", "rows_processed": rows_processed}
 
 # Helper functions for mapping
 def map_event_type(google_forms_value: str) -> str:
     """Map Google Forms responses to your event types"""
+    if not google_forms_value:
+        return 'pee'
+        
     value = google_forms_value.lower().strip()
     if 'pee' in value or 'urinate' in value:
         return 'pee'
@@ -110,10 +127,13 @@ def map_event_type(google_forms_value: str) -> str:
     elif 'cum' in value or 'ejaculate' in value:
         return 'cum'
     else:
-        return value  # or default to 'pee'
+        return 'pee'  # default to pee
 
 def map_location(google_forms_value: str) -> str:
     """Map Google Forms locations to your location options"""
+    if not google_forms_value:
+        return 'home'
+        
     value = google_forms_value.lower().strip()
     if 'home' in value:
         return 'home'
@@ -121,3 +141,7 @@ def map_location(google_forms_value: str) -> str:
         return 'work'
     else:
         return 'other'
+
+@app.get("/")
+async def root():
+    return {"status": "backend running"}
