@@ -1,5 +1,4 @@
--- backend/init.sql
-CREATE TABLE events (
+CREATE TABLE IF NOT EXISTS events (
     id SERIAL PRIMARY KEY,
     event_type VARCHAR(10) NOT NULL,
     location VARCHAR(20) NOT NULL,
@@ -7,7 +6,7 @@ CREATE TABLE events (
     timestamp TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE toothbrush_events (
+CREATE TABLE IF NOT EXISTS toothbrush_events (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMP DEFAULT NOW()
 );
