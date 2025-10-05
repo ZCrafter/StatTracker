@@ -15,11 +15,11 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 class EventSubmission(BaseModel):
     event_type: str
     location: str
-    who: str = None
     timestamp: datetime = None
 
 class ToothbrushSubmission(BaseModel):
     timestamp: datetime = None
+    used_irrigator: bool = False
 
 async def get_db():
     return await asyncpg.connect(DATABASE_URL)
@@ -28,8 +28,8 @@ async def get_db():
 async def submit_event(event: EventSubmission):
     async with await get_db() as conn:
         await conn.execute(
-            "INSERT INTO events (event_type, location, who, timestamp) VALUES ($1, $2, $3, $4)",
-            event.event_type, event.location, event.who, event.timestamp or datetime.now()
+            "INSERT INTO events (event_type, location, timestamp) VALUES ($1, $2, $3)",
+            event.event_type, event.location, event.timestamp or datetime.now()
         )
     return {"status": "success"}
 
@@ -37,8 +37,8 @@ async def submit_event(event: EventSubmission):
 async def submit_toothbrush(event: ToothbrushSubmission):
     async with await get_db() as conn:
         await conn.execute(
-            "INSERT INTO toothbrush_events (timestamp) VALUES ($1)",
-            event.timestamp or datetime.now()
+            "INSERT INTO toothbrush_events (timestamp, used_irrigator) VALUES ($1, $2)",
+            event.timestamp or datetime.now(), event.used_irrigator
         )
     return {"status": "success"}
 
@@ -64,24 +64,24 @@ async def import_events_csv(file: UploadFile = File(...)):
     rows_processed = 0
     async with await get_db() as conn:
         for row in csv_reader:
-            # Map Google Forms columns to your database
-            # Adjust these mappings based on your actual CSV headers
             timestamp_str = row.get('Timestamp') or row.get('Time') or row.get('Date')
             if timestamp_str:
                 try:
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 except:
-                    timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+                    try:
+                        timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+                    except:
+                        timestamp = datetime.now()
             else:
                 timestamp = datetime.now()
                 
             event_type = map_event_type(row.get('Event Type') or row.get('Event') or '')
             location = map_location(row.get('Location') or 'home')
-            who = row.get('Who') or row.get('Person') or ''
             
             await conn.execute(
-                "INSERT INTO events (event_type, location, who, timestamp) VALUES ($1, $2, $3, $4)",
-                event_type, location, who, timestamp
+                "INSERT INTO events (event_type, location, timestamp) VALUES ($1, $2, $3)",
+                event_type, location, timestamp
             )
             rows_processed += 1
     
@@ -101,13 +101,18 @@ async def import_toothbrush_csv(file: UploadFile = File(...)):
                 try:
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 except:
-                    timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+                    try:
+                        timestamp = datetime.strptime(timestamp_str, '%m/%d/%Y %H:%M:%S')
+                    except:
+                        timestamp = datetime.now()
             else:
                 timestamp = datetime.now()
             
+            used_irrigator = row.get('Used Irrigator', '').lower() in ['true', 'yes', '1']
+            
             await conn.execute(
-                "INSERT INTO toothbrush_events (timestamp) VALUES ($1)",
-                timestamp
+                "INSERT INTO toothbrush_events (timestamp, used_irrigator) VALUES ($1, $2)",
+                timestamp, used_irrigator
             )
             rows_processed += 1
     
@@ -127,7 +132,7 @@ def map_event_type(google_forms_value: str) -> str:
     elif 'cum' in value or 'ejaculate' in value:
         return 'cum'
     else:
-        return 'pee'  # default to pee
+        return 'pee'
 
 def map_location(google_forms_value: str) -> str:
     """Map Google Forms locations to your location options"""
