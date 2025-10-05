@@ -4,21 +4,31 @@ services:
     environment:
       POSTGRES_DB: lifestats
       POSTGRES_USER: tracker
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: @Database0101
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d lifestats"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stattracker-network
 
   backend:
     build: ./backend
     ports:
       - "5000:5000"
     environment:
-      DATABASE_URL: postgresql://tracker:${DB_PASSWORD}@postgres:5432/lifestats
+      DATABASE_URL: postgresql://tracker:tracker123@postgres:5432/lifestats
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - stattracker-network
 
   frontend:
     build: ./frontend
@@ -26,6 +36,13 @@ services:
       - "3000:3000"
     depends_on:
       - backend
+    restart: unless-stopped
+    networks:
+      - stattracker-network
 
 volumes:
   postgres_data:
+
+networks:
+  stattracker-network:
+    driver: bridge
