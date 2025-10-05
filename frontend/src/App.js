@@ -58,6 +58,9 @@ function App() {
         <button onClick={() => setActiveScreen('admin')} className={activeScreen === 'admin' ? 'active' : ''}>
           Admin
         </button>
+        <button onClick={() => setActiveScreen('import')} className={activeScreen === 'import' ? 'active' : ''}>
+          Import
+        </button>
       </nav>
 
       {activeScreen === 'events' && (
@@ -67,6 +70,7 @@ function App() {
       {activeScreen === 'toothbrush' && <ToothbrushScreen submitToothbrush={submitToothbrush} />}
       {activeScreen === 'stats' && <StatsScreen events={events} toothbrushEvents={toothbrushEvents} showCum={showCum} setShowCum={setShowCum} />}
       {activeScreen === 'admin' && <AdminScreen events={events} deleteEvent={deleteEvent} />}
+      {activeScreen === 'import' && <ImportScreen />}
     </div>
   );
 }
