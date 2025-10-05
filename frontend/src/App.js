@@ -24,8 +24,18 @@ function App() {
 
   useEffect(() => {
     fetchData();
+    testBackendConnection();
     fetchStats();
   }, []);
+
+  const testBackendConnection = async () => {
+  try {
+    const result = await api.testDb();
+    console.log('Backend connection test:', result);
+  } catch (error) {
+    console.error('Backend connection failed:', error);
+  }
+};
 
   const fetchData = async () => {
     try {
