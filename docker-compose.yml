@@ -12,6 +12,11 @@ services:
       - "5432:5432"
     networks:
       - stattracker-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tracker -d lifestats"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build: ./backend
@@ -19,9 +24,14 @@ services:
     ports:
       - "5000:5000"
     environment:
-      DATABASE_URL: postgresql://tracker:@Database0101@stattracker-postgres:5432/lifestats
+      DATABASE_HOST: stattracker-postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: tracker
+      DATABASE_PASSWORD: @Database0101
+      DATABASE_NAME: lifestats
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - stattracker-network
     restart: unless-stopped
