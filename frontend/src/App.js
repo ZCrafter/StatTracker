@@ -6,7 +6,17 @@ function App() {
   const [showCum, setShowCum] = useState(false);
   const [events, setEvents] = useState([]);
   const [toothbrushEvents, setToothbrushEvents] = useState([]);
-  const [formData, setFormData] = useState({ eventType: 'pee', location: 'home', who: '' });
+  const [lastSubmitted, setLastSubmitted] = useState(null);
+  const [submitMessage, setSubmitMessage] = useState('');
+  const [formData, setFormData] = useState({ 
+    eventType: 'pee', 
+    location: 'home',
+    timestamp: new Date().toISOString().slice(0, 16) // Current date/time
+  });
+  const [toothbrushData, setToothbrushData] = useState({
+    timestamp: new Date().toISOString().slice(0, 16),
+    usedIrrigator: false
+  });
 
   useEffect(() => {
     fetchData();
@@ -25,27 +35,60 @@ function App() {
 
   const submitEvent = async () => {
     try {
-      await fetch('http://localhost:5000/api/events', {
+      const response = await fetch('http://localhost:5000/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, timestamp: new Date() })
+        body: JSON.stringify({ 
+          ...formData, 
+          timestamp: new Date(formData.timestamp) 
+        })
       });
-      setFormData({ ...formData, who: '' });
-      fetchData();
+      
+      if (response.ok) {
+        setSubmitMessage('Event submitted successfully!');
+        setLastSubmitted({
+          type: formData.eventType,
+          time: new Date().toLocaleTimeString()
+        });
+        // Reset form but keep current selections
+        setFormData({
+          ...formData,
+          timestamp: new Date().toISOString().slice(0, 16)
+        });
+        fetchData();
+        
+        // Clear message after 3 seconds
+        setTimeout(() => setSubmitMessage(''), 3000);
+      }
     } catch (error) {
+      setSubmitMessage('Failed to submit event');
       console.error('Failed to submit event:', error);
     }
   };
 
   const submitToothbrush = async () => {
     try {
-      await fetch('http://localhost:5000/api/toothbrush', {
+      const response = await fetch('http://localhost:5000/api/toothbrush', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timestamp: new Date() })
+        body: JSON.stringify({ 
+          timestamp: new Date(toothbrushData.timestamp),
+          used_irrigator: toothbrushData.usedIrrigator 
+        })
       });
-      fetchData();
+      
+      if (response.ok) {
+        setSubmitMessage('Toothbrush recorded successfully!');
+        setToothbrushData({
+          timestamp: new Date().toISOString().slice(0, 16),
+          usedIrrigator: false
+        });
+        fetchData();
+        
+        setTimeout(() => setSubmitMessage(''), 3000);
+      }
     } catch (error) {
+      setSubmitMessage('Failed to submit toothbrush');
       console.error('Failed to submit toothbrush:', error);
     }
   };
@@ -74,24 +117,51 @@ function App() {
         <button onClick={() => setActiveScreen('admin')} className={activeScreen === 'admin' ? 'active' : ''}>
           Admin
         </button>
-        <button onClick={() => setActiveScreen('import')} className={activeScreen === 'import' ? 'active' : ''}>
-          Import
-        </button>
       </nav>
 
+      {submitMessage && (
+        <div className="submit-message">
+          {submitMessage}
+        </div>
+      )}
+
       {activeScreen === 'events' && (
-        <EventScreen formData={formData} setFormData={setFormData} submitEvent={submitEvent} showCum={showCum} setShowCum={setShowCum} />
+        <EventScreen 
+          formData={formData} 
+          setFormData={setFormData} 
+          submitEvent={submitEvent} 
+          showCum={showCum}
+          setShowCum={setShowCum}
+          lastSubmitted={lastSubmitted}
+        />
       )}
       
-      {activeScreen === 'toothbrush' && <ToothbrushScreen submitToothbrush={submitToothbrush} />}
-      {activeScreen === 'stats' && <StatsScreen events={events} toothbrushEvents={toothbrushEvents} showCum={showCum} setShowCum={setShowCum} />}
-      {activeScreen === 'admin' && <AdminScreen events={events} deleteEvent={deleteEvent} />}
-      {activeScreen === 'import' && <ImportScreen />}
+      {activeScreen === 'toothbrush' && (
+        <ToothbrushScreen 
+          toothbrushData={toothbrushData}
+          setToothbrushData={setToothbrushData}
+          submitToothbrush={submitToothbrush} 
+        />
+      )}
+      {activeScreen === 'stats' && (
+        <StatsScreen 
+          events={events} 
+          toothbrushEvents={toothbrushEvents} 
+          showCum={showCum} 
+          setShowCum={setShowCum} 
+        />
+      )}
+      {activeScreen === 'admin' && (
+        <AdminScreen 
+          events={events} 
+          deleteEvent={deleteEvent} 
+        />
+      )}
     </div>
   );
 }
 
-function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum }) {
+function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum, lastSubmitted }) {
   return (
     <div className="screen">
       <div className="event-buttons">
@@ -108,55 +178,118 @@ function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum }
           💩 Poo
         </button>
         <button 
-          className={`event-btn cum-btn ${showCum ? 'visible' : ''} ${formData.eventType === 'cum' ? 'active cum' : ''}`}
+          className={`event-btn cum-toggle-btn ${showCum ? 'visible' : ''} ${formData.eventType === 'cum' ? 'active cum' : ''}`}
           onClick={() => {
-            setShowCum(true);
-            setFormData({...formData, eventType: 'cum'});
+            const newShowCum = !showCum;
+            setShowCum(newShowCum);
+            if (newShowCum) {
+              setFormData({...formData, eventType: 'cum'});
+            }
           }}
         >
           🌶️ Cum
         </button>
       </div>
 
+      <div className="datetime-input">
+        <label>Date & Time:</label>
+        <input 
+          type="datetime-local" 
+          value={formData.timestamp}
+          onChange={(e) => setFormData({...formData, timestamp: e.target.value})}
+        />
+      </div>
+
       <div className="location-radios">
         {['home', 'work', 'other'].map(loc => (
           <label key={loc} className="radio-label">
-            <input type="radio" name="location" value={loc} checked={formData.location === loc} 
-                   onChange={(e) => setFormData({...formData, location: e.target.value})} />
+            <input 
+              type="radio" 
+              name="location" 
+              value={loc} 
+              checked={formData.location === loc} 
+              onChange={(e) => setFormData({...formData, location: e.target.value})} 
+            />
             {loc.charAt(0).toUpperCase() + loc.slice(1)}
           </label>
         ))}
       </div>
 
-      <input type="text" placeholder="Who" value={formData.who} className="who-input"
-             onChange={(e) => setFormData({...formData, who: e.target.value})} />
+      {lastSubmitted && (
+        <div className="last-submitted">
+          Last event: {lastSubmitted.type} at {lastSubmitted.time}
+        </div>
+      )}
 
-      <button className="submit-btn" onClick={submitEvent}>Submit Event</button>
+      <button className="submit-btn" onClick={submitEvent}>
+        Submit Event
+      </button>
     </div>
   );
 }
 
-function ToothbrushScreen({ submitToothbrush }) {
+function ToothbrushScreen({ toothbrushData, setToothbrushData, submitToothbrush }) {
   return (
     <div className="screen">
+      <div className="datetime-input">
+        <label>Date & Time:</label>
+        <input 
+          type="datetime-local" 
+          value={toothbrushData.timestamp}
+          onChange={(e) => setToothbrushData({...toothbrushData, timestamp: e.target.value})}
+        />
+      </div>
+
+      <div className="irrigator-toggle">
+        <label className="toggle-label">
+          <input 
+            type="checkbox" 
+            checked={toothbrushData.usedIrrigator}
+            onChange={(e) => setToothbrushData({...toothbrushData, usedIrrigator: e.target.checked})}
+          />
+          Used Oral Irrigator
+        </label>
+      </div>
+
       <button className="submit-btn toothbrush-btn" onClick={submitToothbrush}>
-        🪥 Brush Teeth
+        🪥 Record Brushing
       </button>
     </div>
   );
 }
 
 function StatsScreen({ events, toothbrushEvents, showCum, setShowCum }) {
+  // Calculate stats
   const today = new Date().toDateString();
   const todayEvents = events.filter(e => new Date(e.timestamp).toDateString() === today);
   
+  // Weekly stats (last 7 days)
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+  const weeklyEvents = events.filter(e => new Date(e.timestamp) >= oneWeekAgo);
+  
+  const weeklyStats = {
+    pee: weeklyEvents.filter(e => e.event_type === 'pee').length,
+    poo: weeklyEvents.filter(e => e.event_type === 'poo').length,
+    cum: weeklyEvents.filter(e => e.event_type === 'cum').length,
+    toothbrush: toothbrushEvents.filter(e => new Date(e.timestamp) >= oneWeekAgo).length
+  };
+
+  const dailyAverages = {
+    pee: (weeklyStats.pee / 7).toFixed(1),
+    poo: (weeklyStats.poo / 7).toFixed(1),
+    cum: (weeklyStats.cum / 7).toFixed(1),
+    toothbrush: (weeklyStats.toothbrush / 7).toFixed(1)
+  };
+
   return (
     <div className="screen">
       <button 
-        className={`cum-toggle ${showCum ? 'visible' : ''}`}
+        className={`cum-toggle-stats ${showCum ? 'visible' : ''}`}
         onClick={() => setShowCum(!showCum)}
+        title={showCum ? 'Hide Cum Stats' : 'Show Cum Stats'}
       >
-        {showCum ? '🌶️' : '❓'}
+        {showCum ? '🌶️' : '🌶️'}
       </button>
       
       <div className="stats">
@@ -177,8 +310,36 @@ function StatsScreen({ events, toothbrushEvents, showCum, setShowCum }) {
             </div>
           )}
           <div className="stat-card">
-            <span className="stat-number">{toothbrushEvents.filter(e => new Date(e.timestamp).toDateString() === today).length}</span>
+            <span className="stat-number">
+              {toothbrushEvents.filter(e => new Date(e.timestamp).toDateString() === today).length}
+            </span>
             <span className="stat-label">Brushing</span>
+          </div>
+        </div>
+
+        <h3>Weekly Stats (Last 7 Days)</h3>
+        <div className="stat-grid">
+          <div className="stat-card">
+            <span className="stat-number">{weeklyStats.pee}</span>
+            <span className="stat-label">Pee Total</span>
+            <span className="stat-average">Avg: {dailyAverages.pee}/day</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-number">{weeklyStats.poo}</span>
+            <span className="stat-label">Poo Total</span>
+            <span className="stat-average">Avg: {dailyAverages.poo}/day</span>
+          </div>
+          {showCum && (
+            <div className="stat-card">
+              <span className="stat-number">{weeklyStats.cum}</span>
+              <span className="stat-label">Cum Total</span>
+              <span className="stat-average">Avg: {dailyAverages.cum}/day</span>
+            </div>
+          )}
+          <div className="stat-card">
+            <span className="stat-number">{weeklyStats.toothbrush}</span>
+            <span className="stat-label">Brushing Total</span>
+            <span className="stat-average">Avg: {dailyAverages.toothbrush}/day</span>
           </div>
         </div>
       </div>
@@ -187,25 +348,7 @@ function StatsScreen({ events, toothbrushEvents, showCum, setShowCum }) {
 }
 
 function AdminScreen({ events, deleteEvent }) {
-  return (
-    <div className="screen admin-screen">
-      <h3>Event History</h3>
-      <div className="event-list">
-        {events.map(event => (
-          <div key={event.id} className="event-item">
-            <span className="event-type">{event.event_type}</span>
-            <span className="event-location">{event.location}</span>
-            <span className="event-who">{event.who || '-'}</span>
-            <span className="event-time">{new Date(event.timestamp).toLocaleString()}</span>
-            <button className="delete-btn" onClick={() => deleteEvent(event.id)}>Delete</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ImportScreen() {
+  const [showImport, setShowImport] = useState(false);
   const [importStatus, setImportStatus] = useState('');
 
   const handleFileUpload = async (event, importType) => {
@@ -232,42 +375,57 @@ function ImportScreen() {
   };
 
   return (
-    <div className="screen">
-      <h3>Import Google Forms Data</h3>
-      
-      <div className="import-section">
-        <h4>Import Events</h4>
-        <p>Upload CSV from Google Forms (Events)</p>
-        <input 
-          type="file" 
-          accept=".csv"
-          onChange={(e) => handleFileUpload(e, 'events')}
-          className="file-input"
-        />
+    <div className="screen admin-screen">
+      <div className="admin-header">
+        <h3>Event History</h3>
+        <button 
+          className="import-toggle-btn"
+          onClick={() => setShowImport(!showImport)}
+        >
+          {showImport ? 'Hide Import' : 'Show Import'}
+        </button>
       </div>
 
-      <div className="import-section">
-        <h4>Import Toothbrush Data</h4>
-        <p>Upload CSV from Google Forms (Toothbrush)</p>
-        <input 
-          type="file" 
-          accept=".csv"
-          onChange={(e) => handleFileUpload(e, 'toothbrush')}
-          className="file-input"
-        />
-      </div>
-
-      {importStatus && (
-        <div className="import-status">
-          {importStatus}
+      {showImport && (
+        <div className="import-section">
+          <h4>Import Google Forms Data</h4>
+          <div className="import-buttons">
+            <div>
+              <p>Import Events CSV</p>
+              <input 
+                type="file" 
+                accept=".csv"
+                onChange={(e) => handleFileUpload(e, 'events')}
+                className="file-input"
+              />
+            </div>
+            <div>
+              <p>Import Toothbrush CSV</p>
+              <input 
+                type="file" 
+                accept=".csv"
+                onChange={(e) => handleFileUpload(e, 'toothbrush')}
+                className="file-input"
+              />
+            </div>
+          </div>
+          {importStatus && (
+            <div className="import-status">
+              {importStatus}
+            </div>
+          )}
         </div>
       )}
 
-      <div className="import-help">
-        <h5>CSV Format Expected:</h5>
-        <p><strong>Events:</strong> Timestamp, Event Type, Location, Who</p>
-        <p><strong>Toothbrush:</strong> Timestamp</p>
-        <p>First row should be headers. Timestamp format: 2023-12-01 14:30:00</p>
+      <div className="event-list">
+        {events.map(event => (
+          <div key={event.id} className="event-item">
+            <span className="event-type">{event.event_type}</span>
+            <span className="event-location">{event.location}</span>
+            <span className="event-time">{new Date(event.timestamp).toLocaleString()}</span>
+            <button className="delete-btn" onClick={() => deleteEvent(event.id)}>Delete</button>
+          </div>
+        ))}
       </div>
     </div>
   );
