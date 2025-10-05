@@ -1,3 +1,46 @@
+:root {
+  --bg-default: #f8f9fa;
+  --bg-pee: #fff9c4;
+  --bg-poo: #f5f5dc;
+  --bg-cum: #ffebee;
+}
+
+.app {
+  transition: background-color 0.3s ease;
+  min-height: 100vh;
+}
+
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.cum-toggle-stats {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.2s;
+  padding: 5px;
+}
+
+.cum-toggle-stats.visible {
+  opacity: 1;
+}
+
+.tracking-since {
+  text-align: center;
+  color: #666;
+  font-style: italic;
+  margin-bottom: 20px;
+  padding: 10px;
+  background: rgba(255,255,255,0.8);
+  border-radius: 8px;
+}
+
 .app {
   max-width: 400px;
   margin: 0 auto;
