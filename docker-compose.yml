@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: lifestats
       POSTGRES_USER: tracker
-      POSTGRES_PASSWORD: @Database0101
+      POSTGRES_PASSWORD: "@Database0101"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -27,7 +27,7 @@ services:
       DATABASE_HOST: stattracker-postgres
       DATABASE_PORT: 5432
       DATABASE_USER: tracker
-      DATABASE_PASSWORD: @Database0101
+      DATABASE_PASSWORD: "@Database0101"
       DATABASE_NAME: lifestats
     depends_on:
       postgres:
