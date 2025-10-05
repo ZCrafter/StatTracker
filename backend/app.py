@@ -1,4 +1,3 @@
-# backend/app.py
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -20,7 +19,6 @@ class EventSubmission(BaseModel):
 class ToothbrushSubmission(BaseModel):
     timestamp: datetime = None
 
-# Database setup
 async def get_db():
     return await asyncpg.connect(DATABASE_URL)
 
@@ -47,10 +45,14 @@ async def get_data():
     async with await get_db() as conn:
         events = await conn.fetch("SELECT * FROM events ORDER BY timestamp DESC")
         toothbrush = await conn.fetch("SELECT * FROM toothbrush_events ORDER BY timestamp DESC")
-    return {"events": events, "toothbrush": toothbrush}
+    return {"events": [dict(record) for record in events], "toothbrush": [dict(record) for record in toothbrush]}
 
 @app.delete("/api/events/{id}")
 async def delete_event(id: int):
     async with await get_db() as conn:
         await conn.execute("DELETE FROM events WHERE id = $1", id)
     return {"status": "deleted"}
+
+@app.get("/")
+async def root():
+    return {"status": "backend running"}
