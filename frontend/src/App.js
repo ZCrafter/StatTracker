@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from './api';
 import './App.css';
 
 function App() {
@@ -18,29 +19,27 @@ function App() {
     timestamp: new Date().toISOString().slice(0, 16),
     usedIrrigator: false
   });
-  const API_BASE = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:5000' 
-  : 'http://backend:5000';
 
   useEffect(() => {
     fetchData();
-    testBackendConnection();
     fetchStats();
+    testConnection();
   }, []);
 
-  const testBackendConnection = async () => {
-  try {
-    const result = await api.testDb();
-    console.log('Backend connection test:', result);
-  } catch (error) {
-    console.error('Backend connection failed:', error);
-  }
-};
+  const testConnection = async () => {
+    try {
+      const result = await api.testDb();
+      console.log('✅ Backend connection test:', result);
+    } catch (error) {
+      console.error('❌ Backend connection failed:', error);
+      setSubmitMessage('Backend connection failed: ' + error.message);
+      setTimeout(() => setSubmitMessage(''), 5000);
+    }
+  };
 
   const fetchData = async () => {
     try {
-      const response = await fetch('${API_BASE}/api/events');
-      const data = await response.json();
+      const data = await api.getData();
       setEvents(data.events);
       setToothbrushEvents(data.toothbrush);
     } catch (error) {
@@ -50,8 +49,7 @@ function App() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('${API_BASE}/api/events');
-      const data = await response.json();
+      const data = await api.getStats();
       setStats(data);
     } catch (error) {
       console.error('Failed to fetch stats:', error);
@@ -60,70 +58,55 @@ function App() {
 
   const submitEvent = async () => {
     try {
-      const response = await fetch('${API_BASE}/api/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          ...formData, 
-          timestamp: new Date(formData.timestamp) 
-        })
+      await api.submitEvent({
+        ...formData,
+        timestamp: new Date(formData.timestamp)
       });
       
-      if (response.ok) {
-        setSubmitMessage('Event submitted successfully!');
-        setLastSubmitted({
-          type: formData.eventType,
-          time: new Date().toLocaleTimeString()
-        });
-        setFormData({
-          ...formData,
-          timestamp: new Date().toISOString().slice(0, 16)
-        });
-        fetchData();
-        fetchStats();
-        
-        setTimeout(() => setSubmitMessage(''), 3000);
-      } else {
-        const errorData = await response.json();
-        setSubmitMessage(`Failed to submit: ${errorData.detail}`);
-      }
+      setSubmitMessage('✅ Event submitted successfully!');
+      setLastSubmitted({
+        type: formData.eventType,
+        time: new Date().toLocaleTimeString()
+      });
+      setFormData({
+        ...formData,
+        timestamp: new Date().toISOString().slice(0, 16)
+      });
+      fetchData();
+      fetchStats();
+      
+      setTimeout(() => setSubmitMessage(''), 3000);
     } catch (error) {
-      setSubmitMessage('Failed to submit event: ' + error.message);
+      setSubmitMessage('❌ Failed to submit event: ' + error.message);
       console.error('Failed to submit event:', error);
     }
   };
 
   const submitToothbrush = async () => {
     try {
-      const response = await fetch('${API_BASE}/api/events', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          timestamp: new Date(toothbrushData.timestamp),
-          used_irrigator: toothbrushData.usedIrrigator 
-        })
+      await api.submitToothbrush({
+        timestamp: new Date(toothbrushData.timestamp),
+        used_irrigator: toothbrushData.usedIrrigator
       });
       
-      if (response.ok) {
-        setSubmitMessage('Toothbrush recorded successfully!');
-        setToothbrushData({
-          timestamp: new Date().toISOString().slice(0, 16),
-          usedIrrigator: false
-        });
-        fetchData();
-        fetchStats();
-        
-        setTimeout(() => setSubmitMessage(''), 3000);
-      }
+      setSubmitMessage('✅ Toothbrush recorded successfully!');
+      setToothbrushData({
+        timestamp: new Date().toISOString().slice(0, 16),
+        usedIrrigator: false
+      });
+      fetchData();
+      fetchStats();
+      
+      setTimeout(() => setSubmitMessage(''), 3000);
     } catch (error) {
-      setSubmitMessage('Failed to submit toothbrush');
+      setSubmitMessage('❌ Failed to submit toothbrush: ' + error.message);
       console.error('Failed to submit toothbrush:', error);
     }
   };
 
   const deleteEvent = async (id) => {
     try {
-      await fetch(`http://localhost:5000/api/events/${id}`, { method: 'DELETE' });
+      await api.deleteEvent(id);
       fetchData();
       fetchStats();
     } catch (error) {
@@ -161,7 +144,7 @@ function App() {
       </nav>
 
       {submitMessage && (
-        <div className="submit-message">
+        <div className={`submit-message ${submitMessage.includes('❌') ? 'error' : 'success'}`}>
           {submitMessage}
         </div>
       )}
@@ -173,7 +156,6 @@ function App() {
           submitEvent={submitEvent} 
           showCum={showCum}
           setShowCum={setShowCum}
-          setActiveScreen={setActiveScreen}
           lastSubmitted={lastSubmitted}
         />
       )}
@@ -204,7 +186,7 @@ function App() {
   );
 }
 
-function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum, setActiveScreen, lastSubmitted }) {
+function EventScreen({ formData, setFormData, submitEvent, showCum, setShowCum, lastSubmitted }) {
   const handleCumClick = () => {
     const newShowCum = !showCum;
     setShowCum(newShowCum);
@@ -440,7 +422,7 @@ function AdminScreen({ events, deleteEvent }) {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`http://localhost:5000/api/import/${importType}`, {
+      const response = await fetch(`/api/import/${importType}`, {
         method: 'POST',
         body: formData,
       });
