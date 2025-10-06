@@ -5,18 +5,18 @@ services:
     environment:
       POSTGRES_DB: lifestats
       POSTGRES_USER: tracker
-      POSTGRES_PASSWORD: "@Database0101"
+      POSTGRES_PASSWORD: tracker123
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
-    networks:
-      - stattracker-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U tracker -d lifestats"]
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - stattracker-network
 
   backend:
     build: ./backend
@@ -27,7 +27,7 @@ services:
       DATABASE_HOST: stattracker-postgres
       DATABASE_PORT: 5432
       DATABASE_USER: tracker
-      DATABASE_PASSWORD: "@Database0101"
+      DATABASE_PASSWORD: tracker123
       DATABASE_NAME: lifestats
     depends_on:
       postgres:
