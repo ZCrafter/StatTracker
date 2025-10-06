@@ -9,14 +9,13 @@ import asyncio
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Get database configuration from environment variables
+# Database configuration
 DB_CONFIG = {
     "host": os.getenv("DATABASE_HOST", "stattracker-postgres"),
     "port": int(os.getenv("DATABASE_PORT", "5432")),
     "user": os.getenv("DATABASE_USER", "tracker"),
     "password": os.getenv("DATABASE_PASSWORD", "tracker123"),
     "database": os.getenv("DATABASE_NAME", "lifestats"),
-    "timeout": 30
 }
 
 class EventSubmission(BaseModel):
@@ -29,54 +28,25 @@ class ToothbrushSubmission(BaseModel):
     used_irrigator: bool = False
 
 async def get_db_connection():
-    """Get database connection with comprehensive error handling"""
-    max_retries = 10
-    last_error = None
-    
-    for attempt in range(max_retries):
-        try:
-            print(f"🔧 Database connection attempt {attempt + 1}/{max_retries}")
-            print(f"   Connecting to: {DB_CONFIG['host']}:{DB_CONFIG['port']}")
-            print(f"   Database: {DB_CONFIG['database']}, User: {DB_CONFIG['user']}")
-            
-            conn = await asyncpg.connect(**DB_CONFIG)
-            
-            # Test the connection
-            version = await conn.fetchval("SELECT version()")
-            print(f"✅ Database connection successful!")
-            print(f"   PostgreSQL version: {version.split(',')[0]}")
-            
-            return conn
-            
-        except Exception as e:
-            last_error = e
-            print(f"❌ Connection failed (attempt {attempt + 1}): {str(e)}")
-            
-            if attempt < max_retries - 1:
-                wait_time = 2
-                print(f"   Waiting {wait_time} seconds before retry...")
-                await asyncio.sleep(wait_time)
-            else:
-                print(f"💥 All connection attempts failed")
-                raise Exception(f"Failed to connect to database after {max_retries} attempts. Last error: {str(last_error)}")
+    """Get database connection with detailed logging"""
+    try:
+        print(f"🔧 Attempting database connection to: {DB_CONFIG['host']}:{DB_CONFIG['port']}")
+        conn = await asyncpg.connect(**DB_CONFIG)
+        print("✅ Database connection successful!")
+        return conn
+    except Exception as e:
+        print(f"❌ Database connection failed: {e}")
+        raise
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup"""
     print("🚀 Starting StatTracker Backend...")
-    print("📊 Database Configuration:")
-    for key, value in DB_CONFIG.items():
-        if key != 'password':
-            print(f"   {key}: {value}")
-        else:
-            print(f"   {key}: {'*' * len(value)}")
-    
     try:
         conn = await get_db_connection()
         
-        # Create tables if they don't exist
-        print("🗃️ Creating/verifying database tables...")
-        
+        # Create tables
+        print("🗃️ Creating database tables...")
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS events (
                 id SERIAL PRIMARY KEY,
@@ -85,7 +55,7 @@ async def startup_event():
                 timestamp TIMESTAMP DEFAULT NOW()
             )
         ''')
-        print("   ✅ Events table ready")
+        print("✅ Events table created")
         
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS toothbrush_events (
@@ -94,26 +64,17 @@ async def startup_event():
                 used_irrigator BOOLEAN DEFAULT FALSE
             )
         ''')
-        print("   ✅ Toothbrush events table ready")
+        print("✅ Toothbrush events table created")
         
         await conn.close()
         print("🎉 Database initialization complete!")
         
     except Exception as e:
         print(f"💥 Startup failed: {e}")
-        # Don't raise here, let the app start anyway
 
 @app.get("/")
 async def root():
-    return {
-        "status": "backend running", 
-        "service": "StatTracker Backend",
-        "endpoints": {
-            "test_db": "/test-db",
-            "submit_event": "POST /api/events",
-            "get_data": "GET /api/data"
-        }
-    }
+    return {"status": "backend running", "message": "Visit /test-db to check database connection"}
 
 @app.get("/test-db")
 async def test_db():
@@ -121,25 +82,25 @@ async def test_db():
     try:
         conn = await get_db_connection()
         
-        # Get some stats
+        # Get database info
+        version = await conn.fetchval("SELECT version()")
         event_count = await conn.fetchval("SELECT COUNT(*) FROM events")
         toothbrush_count = await conn.fetchval("SELECT COUNT(*) FROM toothbrush_events")
-        version = await conn.fetchval("SELECT version()")
         
         await conn.close()
         
         return {
             "status": "success", 
+            "database": "connected",
             "postgres_version": version.split(',')[0],
             "event_count": event_count,
-            "toothbrush_count": toothbrush_count,
-            "database_connection": "healthy"
+            "toothbrush_count": toothbrush_count
         }
     except Exception as e:
         return {
             "status": "error", 
-            "message": str(e),
-            "database_connection": "unhealthy"
+            "database": "disconnected",
+            "message": str(e)
         }
 
 @app.post("/api/events")
@@ -189,8 +150,54 @@ async def get_data():
 async def delete_event(event_id: int):
     try:
         conn = await get_db_connection()
-        result = await conn.execute("DELETE FROM events WHERE id = $1", event_id)
+        await conn.execute("DELETE FROM events WHERE id = $1", event_id)
         await conn.close()
-        return {"status": "success", "message": f"Event {event_id} deleted"}
+        return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/stats")
+async def get_stats():
+    try:
+        conn = await get_db_connection()
+        
+        # Get earliest event date
+        first_event = await conn.fetchval("SELECT MIN(timestamp) FROM events")
+        first_toothbrush = await conn.fetchval("SELECT MIN(timestamp) FROM toothbrush_events")
+        
+        # Get all-time averages
+        total_events = await conn.fetchval("SELECT COUNT(*) FROM events")
+        total_toothbrush = await conn.fetchval("SELECT COUNT(*) FROM toothbrush_events")
+        
+        # Calculate days since first event
+        if first_event:
+            days_since_first = (datetime.now() - first_event).days or 1
+        else:
+            days_since_first = 1
+            
+        # Event counts by type
+        event_counts = await conn.fetch("SELECT event_type, COUNT(*) FROM events GROUP BY event_type")
+        event_counts_dict = {row['event_type']: row['count'] for row in event_counts}
+        
+        stats = {
+            "first_event_date": first_event.isoformat() if first_event else None,
+            "first_toothbrush_date": first_toothbrush.isoformat() if first_toothbrush else None,
+            "all_time_averages": {
+                "pee": round(event_counts_dict.get('pee', 0) / days_since_first, 1),
+                "poo": round(event_counts_dict.get('poo', 0) / days_since_first, 1),
+                "cum": round(event_counts_dict.get('cum', 0) / days_since_first, 1),
+                "toothbrush": round(total_toothbrush / days_since_first, 1)
+            },
+            "total_days": days_since_first
+        }
+        
+        await conn.close()
+        return stats
+    except Exception as e:
+        print(f"Error fetching stats: {e}")
+        return {
+            "first_event_date": None,
+            "first_toothbrush_date": None,
+            "all_time_averages": {"pee": 0, "poo": 0, "cum": 0, "toothbrush": 0},
+            "total_days": 1
+        }
