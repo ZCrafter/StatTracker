@@ -1,13 +1,13 @@
 // frontend/src/api.js
-const API_BASE = ''
-  ? 'http://localhost:5000' 
-  : '/api'; // Use relative path when served from same domain
+
+// Use relative URLs - the proxy in package.json will handle routing to backend
+const API_BASE = '';
 
 export const api = {
   async request(endpoint, options = {}) {
     try {
       const url = `${API_BASE}${endpoint}`;
-      console.log(`API Call: ${url}`, options);
+      console.log(`🔄 API Call: ${url}`, options);
       
       const response = await fetch(url, {
         headers: {
@@ -18,12 +18,16 @@ export const api = {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`❌ API Error: ${response.status} - ${errorText}`);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      return await response.json();
+      const data = await response.json();
+      console.log(`✅ API Success: ${endpoint}`, data);
+      return data;
     } catch (error) {
-      console.error(`API Error for ${endpoint}:`, error);
+      console.error(`💥 API Error for ${endpoint}:`, error);
       throw error;
     }
   },
@@ -51,6 +55,10 @@ export const api = {
     return this.request(`/api/events/${eventId}`, {
       method: 'DELETE',
     });
+  },
+
+  getStats() {
+    return this.request('/api/stats');
   },
 
   testDb() {
